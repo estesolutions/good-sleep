@@ -1,0 +1,11 @@
+#### SensorPush ####
+sensorpush:
+  host: "api.sensorpush.com"
+  username: "jason@estesolutions.com"
+  password: "![5LvncyBn8dmxYs0h56clxg==]"
+  basepath: "/api/v1"
+  
+#### Nest ####
+nest:
+  authorization: "Bearer ya29.a0AfH6SMC-CjhyYwul7C_cuedbOgELXT-Xxq2rI2Wf9DSzLSQEqChcUFRrw-tSIrowf-UWMe75D7LHIISjNnvhCcCGYGZKNum5bNahFPueQQXVhi5C25g2PYCSFNXPIwhZ9VXAMvh-xpMFanjHvahZ1APpc57O-bwCrnLWTuf0YP0"
+    
