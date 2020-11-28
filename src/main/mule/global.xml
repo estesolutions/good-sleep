@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:secure-properties="http://www.mulesoft.org/schema/mule/secure-properties" xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/secure-properties http://www.mulesoft.org/schema/mule/secure-properties/current/mule-secure-properties.xsd">
+
+	<http:request-config name="SensorPush_HTTP_Request_configuration" doc:name="HTTP Request configuration" doc:id="15e3e5c3-587b-4d49-b50d-ef56c73c0d05" basePath="${secure::sensorpush.basepath}" >
+		<http:request-connection protocol="HTTPS" host="${secure::sensorpush.host}" />
+	</http:request-config>
+
+	<secure-properties:config name="Secure_Properties_Config" doc:name="Secure Properties Config" doc:id="2e57cadf-4ab7-442f-82bc-bcc53401d69f" file="config-properties.yaml" key="${encryption.key}"/>	
+
+</mule>

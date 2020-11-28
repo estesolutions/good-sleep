@@ -1,0 +1,241 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:os="http://www.mulesoft.org/schema/mule/os" xmlns:oauth="http://www.mulesoft.org/schema/mule/oauth"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/oauth http://www.mulesoft.org/schema/mule/oauth/current/mule-oauth.xsd
+http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd">
+	<http:request-config name="Nest_HTTP_Request_configuration" doc:name="HTTP Request configuration" doc:id="bc2831bc-ba72-4604-800d-8b4a06aaa981" basePath="/v1">
+		<http:request-connection protocol="HTTPS" host="smartdevicemanagement.googleapis.com" port="443" />
+	</http:request-config>
+	<oauth:config name="GCP_OAuth_Config" doc:name="OAuth Config" doc:id="3de0e068-a86f-43be-baec-bbb1cbd19694" />
+	<oauth:token-manager-config name="GCP_Token_manager_config" doc:name="Token manager config" doc:id="cade5ef7-268d-43d7-a551-86b46c347f24" />
+	<http:request-config name="GCP_HTTP_Request_configuration" doc:name="HTTP Request configuration" doc:id="fce89d59-e499-42c9-99ca-3194085cd972" basePath="/oauth2/v4" >
+		<http:request-connection protocol="HTTPS" host="www.googleapis.com" port="443" />
+	</http:request-config>
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="c174e06b-e0d0-4301-a28d-37d5ff6a5b30" basePath="/v1" >
+		<http:listener-connection host="0.0.0.0" port="8081" />
+	</http:listener-config>
+	<flow name="sample-readFlow" doc:id="3bacd97b-8338-4be7-a79e-339f6992a521" initialState="started">
+		<scheduler doc:name="Scheduler" doc:id="0e8d2223-6a09-43fe-914b-c7793b997190" >
+			<scheduling-strategy >
+				<fixed-frequency frequency="10" timeUnit="MINUTES"/>
+			</scheduling-strategy>
+		</scheduler>
+		<set-variable value='#[now() &gt;&gt; "UTC"]' doc:name="timestamp" doc:id="f57e0dee-d937-4a9f-937c-2036234319fc" variableName="timestamp"/>
+		<logger level="INFO" doc:name="Job Triggered" doc:id="9ef3f9dc-35c3-4ff2-a0cb-d0d59fe3f4b3" message="#[vars.timestamp as String] : Starting sample pull. "/>
+		<http:request method="POST" doc:name="Cloud Sign in" doc:id="84fadc57-fdc5-43fd-a0ec-47fb2f880b0d" config-ref="SensorPush_HTTP_Request_configuration" path="/oauth/authorize" target="authorizationToken" targetValue="#[payload.authorization]">
+			<http:body ><![CDATA[#[%dw 2.0
+output application/json
+---
+{ 
+   "email": p('secure::sensorpush.username'), 
+   "password": p('secure::sensorpush.password')
+}]]]></http:body>
+			<http:headers ><![CDATA[#[output application/java
+---
+{
+	"Content-Type" : "application/json"
+}]]]></http:headers>
+		</http:request>
+		<http:request method="POST" doc:name="Get Access Token" doc:id="7a14ca41-f3c3-44cc-90bd-05cb777f8e92" path="/oauth/accesstoken" config-ref="SensorPush_HTTP_Request_configuration" target="accessToken" targetValue="#[payload.accesstoken]">
+			<http:body ><![CDATA[#[%dw 2.0
+output application/json
+---
+{ 
+   authorization: vars.authorizationToken
+}]]]></http:body>
+			<http:headers ><![CDATA[#[output application/java
+---
+{
+	"Content-Type" : "application/json"
+}]]]></http:headers>
+		</http:request>
+		<http:request method="POST" doc:name="Query Samples" doc:id="8a09ecf4-d3fc-43bb-8bb0-56f770fa415e" config-ref="SensorPush_HTTP_Request_configuration" path="/samples">
+			<http:body ><![CDATA[#[%dw 2.0
+output application/json
+---
+{ 
+	"limit": 500,
+	"startTime": vars.timestamp - |PT10M|
+}]]]></http:body>
+			<http:headers ><![CDATA[#[output application/java
+---
+{
+	"Authorization" : vars.accessToken,
+	"Accept" : "application/json",
+	"Content-Type" : "application/json"
+}]]]></http:headers>
+		</http:request>
+		<choice doc:name="Did We Retrieve Samples?" doc:id="d105ec07-b542-454d-a3f0-87146bba7357" >
+			<when expression="#[sizeOf(payload.sensors.'313509.4548391930366721') &gt; 0]">
+				<ee:transform doc:name="Calculate Averages" doc:id="20537732-77d1-4138-9c53-751365eb7113">
+			<ee:message>
+			</ee:message>
+			<ee:variables>
+				<ee:set-variable variableName="averageTemp"><![CDATA[%dw 2.0
+output application/java
+---
+
+(5 * (avg(payload.sensors.'313509.4548391930366721'.*temperature) - 32.0) / 9.0) as String {format: "#.#"}]]></ee:set-variable>
+				<ee:set-variable variableName="averageHumi"><![CDATA[%dw 2.0
+output application/java
+---
+avg(payload.sensors.'313509.4548391930366721'.*humidity) as String {format: "#.#"}]]></ee:set-variable>
+						<ee:set-variable variableName="maxTemp" ><![CDATA[%dw 2.0
+output application/java
+---
+(5* (max(payload.sensors.'313509.4548391930366721'.*temperature) -32.0) / 9.0) as String {format: "#.#"}]]></ee:set-variable>
+						<ee:set-variable variableName="minTemp" ><![CDATA[%dw 2.0
+output application/java
+---
+(5* (min(payload.sensors.'313509.4548391930366721'.*temperature) -32.0) / 9.0) as String {format: "#.#"}]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+				<logger level="INFO" doc:name="Log Averages" doc:id="f766801b-253f-47ef-84bd-912a2fbfe6d1" message="#[vars.timestamp as String] : Sample calculations. averageTemperature=#[vars.averageTemp] averageHumidity=#[vars.averageHumi] maxTemperature=#[vars.maxTemp] minTemperature=#[vars.minTemp]" />
+				<flow-ref doc:name="Compare Against Settings" doc:id="525f3870-4083-4a4a-8f99-70c4a86098e3" name="adjust-settingsFlow"/>
+			</when>
+			<otherwise >
+				<logger level="WARN" doc:name="No Samples Found" doc:id="14b3464d-f467-401e-b463-eeb019e6cb2d" message="#[vars.timestamp as String] : No samples found."/>
+			</otherwise>
+		</choice>
+	</flow>
+	<sub-flow name="adjust-settingsFlow" doc:id="4820e470-b743-43c0-aa7e-ca7bfb589d85" >
+		<os:retrieve doc:name="Retrieve Desired Temperature" doc:id="3ff4700f-74d5-489a-a66f-b06ece6db15b" key="bedroom1_temperature_setpoint" target="desiredTemp"/>
+		<logger level="INFO" doc:name="Logger" doc:id="ec941964-87ac-4938-8e2c-c73b4d74536d" message="[vars.timestamp as String] : Desired temperature is #[vars.desiredTemp]"/>
+		<choice doc:name="Is Room Too Hot, Cold, or Just Right?" doc:id="b8874314-b0bd-4002-98a1-a7ac86823ca1" >
+			<when expression="#[vars.averageTemp &lt; vars.desiredTemp]">
+				<logger level="INFO" doc:name="Logger" doc:id="09377e47-6ccf-4c11-9b7c-e8baec0b0257" message="#[vars.timestamp as String] : Turn on the heat"/>
+				<flow-ref doc:name="Turn On Heat" doc:id="9eab9848-d09f-4e7d-bf55-afdba99a5244" name="nest-heatonFlow"/>
+			</when>
+			<when expression="#[floor(vars.averageTemp) &gt; vars.desiredTemp]">
+				<logger level="INFO" doc:name="Logger" doc:id="d507b416-2ba0-4286-83ca-e939adabcd7d" message="#[vars.timestamp as String] : Turn off heat"/>
+				<flow-ref doc:name="Turn Off Heat" doc:id="88e39b01-6229-4167-a7a6-b7afa7ecc855" name="nest-heatoffFlow"/>
+			</when>
+			<otherwise >
+				<logger level="INFO" doc:name="Do Nothing" doc:id="0ddae511-2822-4215-94a3-13749f21cbc3" message="#[vars.timestamp as String] : Do nothing"/>
+			</otherwise>
+		</choice>
+	</sub-flow>
+	<flow name="nest-heatonFlow" doc:id="37fba552-180a-484f-9b26-ac8b2f19d0c6">
+<!-- 		<http:request method="POST" doc:name="Oauth Access" doc:id="47fc6b9b-1209-43ae-b4c2-e5b868716179" config-ref="GCP_HTTP_Request_configuration" path="/token"> -->
+<!-- 			<http:query-params ><![CDATA[#[output application/java -->
+<!-- -&#45;&#45; -->
+<!-- { -->
+<!-- 	"redirect_uri" : "https://www.google.com", -->
+<!-- 	"client_secret" : "Yf7rlGpO4G9WMBDvi_FmHNzx", -->
+<!-- 	"code" : "4/0AY0e-g4m5BcXwlApnLvJBdtwszhw0C49VeKSlDYygeEaezPPN5AEO3iyoSnnmJykFzzN3w", -->
+<!-- 	"grant_type" : "authorization_code", -->
+<!-- 	"client_id" : "1074532554288-t6nircc856n9eg1rtr8b5jame74anj0a.apps.googleusercontent.com" -->
+<!-- }]]]></http:query-params> -->
+<!-- 		</http:request> -->
+		<http:request method="GET" doc:name="Retieve Nest Device Information" doc:id="91f6e58e-51a7-4c11-b23f-e63470ca79fc" config-ref="Nest_HTTP_Request_configuration" path="/enterprises/{project_id}/devices/{device_id}">
+			<http:headers ><![CDATA[#[output application/java
+---
+{
+	"Authorization" : p('secure::nest.authorization'),
+	"Content-Type" : "application/json"
+}]]]></http:headers>
+			<http:uri-params ><![CDATA[#[output application/java
+---
+{
+	"device_id" : "AVPHwEsK9fCIyJZNaS2sX8dCapxOLT-AxcIQMrXSCN2LOFX1olW7hNkaFBXypzXIdgLwFos6rO2quNYvJ_w5cWcp7ULJJw",
+	"project_id" : "9986d12e-506c-4a52-93b6-5b6ef78b3ee1"
+}]]]></http:uri-params>
+		</http:request>
+		<choice doc:name="Is Set Point Lower Than Current Temperature?" doc:id="f6f15534-b2f0-44e1-932b-919a78774500" >
+			<when expression="#[(payload.traits.'sdm.devices.traits.ThermostatTemperatureSetpoint'.heatCelsius
+- payload.traits.'sdm.devices.traits.Temperature'.ambientTemperatureCelsius) &lt; 0]">
+				<logger level="INFO" doc:name="Heat is Off" doc:id="3dd267bd-c6fd-4784-b1a0-ab57d62c4267" message="vars.timestamp as String] :  Changing the Nest Temperature Setpoint to #[(payload.traits.'sdm.devices.traits.Temperature'.ambientTemperatureCelsius + 1) as String {format: &quot;#.#&quot;}]"/>
+				<http:request method="POST" doc:name="Increase Nest Temperature Set Point" doc:id="2c038712-af22-4be8-87da-efd62ff52745" config-ref="Nest_HTTP_Request_configuration" path="/enterprises/{project_id}/devices/{device_id}:executeCommand">
+					<http:body ><![CDATA[#[{
+  "command" : "sdm.devices.commands.ThermostatTemperatureSetpoint.SetHeat",
+  "params" : {
+    "heatCelsius" : (payload.traits.'sdm.devices.traits.Temperature'.ambientTemperatureCelsius + 1) as String {format: "#.#"} as Number
+  }
+}]]]></http:body>
+					<http:headers ><![CDATA[#[output application/java
+---
+{
+	"Authorization" : p('secure::nest.authorization'),
+	"Content-Type" : "application/json"
+}]]]></http:headers>
+					<http:uri-params ><![CDATA[#[output application/java
+---
+{
+	"device_id" : "AVPHwEsK9fCIyJZNaS2sX8dCapxOLT-AxcIQMrXSCN2LOFX1olW7hNkaFBXypzXIdgLwFos6rO2quNYvJ_w5cWcp7ULJJw",
+	"project_id" : "9986d12e-506c-4a52-93b6-5b6ef78b3ee1"
+}]]]></http:uri-params>
+				</http:request>
+			</when>
+			<otherwise >
+				<logger level="INFO" doc:name="Heat is Already On" doc:id="4170e75b-efb1-4cd6-83fe-6fd8b4cca93d" message="#[vars.timestamp as String] : Heat is already on"/>
+			</otherwise>
+		</choice>
+	</flow>
+	<flow name="nest-heatoffFlow" doc:id="1882abde-b00c-49d6-8481-b8239b7084a4">
+<!-- 		<http:request method="POST" doc:name="Oauth Access" doc:id="12409423-e8ae-44fc-a164-79cb363fbc22" config-ref="GCP_HTTP_Request_configuration" path="/token"> -->
+<!-- 			<http:query-params ><![CDATA[#[output application/java -->
+<!-- -&#45;&#45; -->
+<!-- { -->
+<!-- 	"redirect_uri" : "https://www.google.com", -->
+<!-- 	"client_secret" : "Yf7rlGpO4G9WMBDvi_FmHNzx", -->
+<!-- 	"code" : "4/0AY0e-g4m5BcXwlApnLvJBdtwszhw0C49VeKSlDYygeEaezPPN5AEO3iyoSnnmJykFzzN3w", -->
+<!-- 	"grant_type" : "authorization_code", -->
+<!-- 	"client_id" : "1074532554288-t6nircc856n9eg1rtr8b5jame74anj0a.apps.googleusercontent.com" -->
+<!-- }]]]></http:query-params> -->
+<!-- 		</http:request> -->
+		<http:request method="GET" doc:name="Retieve Nest Device Information" doc:id="8640c93a-efdd-46d7-af29-f5679a38c4ff" config-ref="Nest_HTTP_Request_configuration" path="/enterprises/{project_id}/devices/{device_id}">
+			<http:headers ><![CDATA[#[output application/java
+---
+{
+	"Authorization" : p('secure::nest.authorization'),
+	"Content-Type" : "application/json"
+}]]]></http:headers>
+			<http:uri-params ><![CDATA[#[output application/java
+---
+{
+	"device_id" : "AVPHwEsK9fCIyJZNaS2sX8dCapxOLT-AxcIQMrXSCN2LOFX1olW7hNkaFBXypzXIdgLwFos6rO2quNYvJ_w5cWcp7ULJJw",
+	"project_id" : "9986d12e-506c-4a52-93b6-5b6ef78b3ee1"
+}]]]></http:uri-params>
+		</http:request>
+		<choice doc:name="Is Set Point Higher Than Current Temperature?" doc:id="4b8801e5-4f92-4a07-825d-5ccc5b57872a" >
+			<when expression="#[(payload.traits.'sdm.devices.traits.ThermostatTemperatureSetpoint'.heatCelsius
+- payload.traits.'sdm.devices.traits.Temperature'.ambientTemperatureCelsius) &gt; 0]">
+				<logger level="INFO" doc:name="Heat is On" doc:id="817b4787-d770-4248-95e1-9b34edeec128" message="#[vars.timestamp as String] : Changing the Nest Temperature Setpoint to #[payload.traits.'sdm.devices.traits.Temperature'.ambientTemperatureCelsius -1]"/>
+				<http:request method="POST" doc:name="Lower Nest Temperature Set Point" doc:id="32eb72ad-8b1d-40cf-b6a0-b259a541811c" config-ref="Nest_HTTP_Request_configuration" path="/enterprises/{project_id}/devices/{device_id}:executeCommand">
+					<http:body ><![CDATA[#[{
+  "command" : "sdm.devices.commands.ThermostatTemperatureSetpoint.SetHeat",
+  "params" : {
+    "heatCelsius" : payload.traits.'sdm.devices.traits.Temperature'.ambientTemperatureCelsius - 1
+  }
+}]]]></http:body>
+					<http:headers ><![CDATA[#[output application/java
+---
+{
+	"Authorization" : p('secure::nest.authorization'),
+	"Content-Type" : "application/json"
+}]]]></http:headers>
+					<http:uri-params ><![CDATA[#[output application/java
+---
+{
+	"device_id" : "AVPHwEsK9fCIyJZNaS2sX8dCapxOLT-AxcIQMrXSCN2LOFX1olW7hNkaFBXypzXIdgLwFos6rO2quNYvJ_w5cWcp7ULJJw",
+	"project_id" : "9986d12e-506c-4a52-93b6-5b6ef78b3ee1"
+}]]]></http:uri-params>
+				</http:request>
+			</when>
+			<otherwise >
+				<logger level="INFO" doc:name="Heat is Already Off" doc:id="cdb4a930-82d1-4d77-ad6d-a72770a87e9d" message="#[vars.timestamp as String] : Heat is already off"/>
+			</otherwise>
+		
+</choice>
+	</flow>	
+	<flow name="configure-desired-temperature-APIFlow" doc:id="a54ef960-8011-44a9-a208-f61df1620b1e" >
+		<http:listener doc:name="Listener" doc:id="f08ee78d-1512-41a7-b345-fec755c238e1" config-ref="HTTP_Listener_config" allowedMethods="POST" path="/room/bedroom1/traits"/>
+		<os:store doc:name="Store Desired Temperature" doc:id="d01765a7-6de4-4d02-af09-6e636a76ec72" key="bedroom1_temperature_setpoint">
+			<os:value ><![CDATA[#[payload.temperature]]]></os:value>
+		</os:store>
+	</flow>
+</mule>
